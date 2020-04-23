@@ -12,11 +12,19 @@ import (
 )
 
 var (
+	oauthHost = "github.com"
+
 	// The "GitHub CLI" OAuth app
 	oauthClientID = "178c6fc778ccc68e1d6a"
 	// This value is safe to be embedded in version control
 	oauthClientSecret = "34ddeff2b558a23d38fba8a6de74f086ede1cc0b"
 )
+
+func init() {
+	if gheHostname := os.Getenv("GITHUB_HOST"); gheHostname != "" {
+		oauthHost = gheHostname
+	}
+}
 
 // IsGitHubApp reports whether an OAuth app is "GitHub CLI" or "GitHub CLI (dev)"
 func IsGitHubApp(id string) bool {

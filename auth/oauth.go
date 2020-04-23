@@ -50,12 +50,18 @@ func (oa *OAuthFlow) ObtainAccessToken() (accessToken string, err error) {
 	scopes := "repo"
 	if oa.Scopes != nil {
 		scopes = strings.Join(oa.Scopes, " ")
+
+	redirectURI := "http://127.0.0.1:%d/callback"
+	callbackPath := "/callback"
+	if gheHostname := os.Getenv("GITHUB_HOST"); gheHostname != "" {
+		redirectURI = "http://localhost:%d"
+		callbackPath = "/"
 	}
 
 	q := url.Values{}
 	q.Set("client_id", oa.ClientID)
-	q.Set("redirect_uri", fmt.Sprintf("http://127.0.0.1:%d/callback", port))
-	q.Set("scope", scopes)
+  q.Set("redirect_uri", fmt.Sprintf(redirectURI, port))
+  q.Set("scope", scopes)
 	q.Set("state", state)
 
 	startURL := fmt.Sprintf("https://%s/login/oauth/authorize?%s", oa.Hostname, q.Encode())
@@ -73,7 +79,7 @@ func (oa *OAuthFlow) ObtainAccessToken() (accessToken string, err error) {
 
 	_ = http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		oa.logf("server handler: %s\n", r.URL.Path)
-		if r.URL.Path != "/callback" {
+		if r.URL.Path != callbackPath {
 			w.WriteHeader(404)
 			return
 		}
