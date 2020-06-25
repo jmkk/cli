@@ -238,6 +238,62 @@ func (c Client) PullRequestDiff(baseRepo ghrepo.Interface, prNumber int) (string
 }
 
 func PullRequests(client *Client, repo ghrepo.Interface, currentPRNumber int, currentPRHeadRef, currentUsername string) (*PullRequestsPayload, error) {
+	var featureDetection struct {
+		PullRequest struct {
+			Fields []struct {
+				Name string
+			} `graphql:"fields(includeDeprecated: true)"`
+		} `graphql:"PullRequest: __type(name: \"PullRequest\")"`
+		Commit struct {
+			Fields []struct {
+				Name string
+			} `graphql:"fields(includeDeprecated: true)"`
+		} `graphql:"Commit: __type(name: \"Commit\")"`
+	}
+
+	v4 := githubv4.NewClient(client.http)
+	err := v4.Query(context.Background(), &featureDetection, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var field_isDraft string
+	var field_reviewDecision string
+	var fragment_statusCheckRollup string
+	for _, field := range featureDetection.PullRequest.Fields {
+		switch field.Name {
+		case "isDraft":
+			field_isDraft = "isDraft"
+		case "reviewDecision":
+			field_reviewDecision = "reviewDecision"
+		}
+	}
+	for _, field := range featureDetection.Commit.Fields {
+		switch field.Name {
+		case "statusCheckRollup":
+			fragment_statusCheckRollup = `
+			commits(last: 1) {
+				nodes {
+					commit {
+						statusCheckRollup {
+							contexts(last: 100) {
+								nodes {
+									...on StatusContext {
+										state
+									}
+									...on CheckRun {
+										status
+										conclusion
+									}
+								}
+							}
+						}
+					}
+				}
+			}`
+		}
+	}
+
 	type edges struct {
 		TotalCount int
 		Edges      []struct {
@@ -257,7 +313,7 @@ func PullRequests(client *Client, repo ghrepo.Interface, currentPRNumber int, cu
 		ReviewRequested edges
 	}
 
-	fragments := `
+	fragments := fmt.Sprintf(`
 	fragment pr on PullRequest {
 		number
 		title
@@ -268,35 +324,17 @@ func PullRequests(client *Client, repo ghrepo.Interface, currentPRNumber int, cu
 			login
 		}
 		isCrossRepository
-		isDraft
-		commits(last: 1) {
-			nodes {
-				commit {
-					statusCheckRollup {
-						contexts(last: 100) {
-							nodes {
-								...on StatusContext {
-									state
-								}
-								...on CheckRun {
-									status
-									conclusion
-								}
-							}
-						}
-					}
-				}
-			}
-		}
+		%s
+		%s
 	}
 	fragment prWithReviews on PullRequest {
 		...pr
-		reviewDecision
+		%s
 	}
-	`
+	`, field_isDraft, fragment_statusCheckRollup, field_reviewDecision)
 
 	queryPrefix := `
-	query($owner: String!, $repo: String!, $headRefName: String!, $viewerQuery: String!, $reviewerQuery: String!, $per_page: Int = 10) {
+	query PullRequestStatus($owner: String!, $repo: String!, $headRefName: String!, $viewerQuery: String!, $reviewerQuery: String!, $per_page: Int = 10) {
 		repository(owner: $owner, name: $repo) {
 			defaultBranchRef { name }
 			pullRequests(headRefName: $headRefName, first: $per_page, orderBy: { field: CREATED_AT, direction: DESC }) {
@@ -311,7 +349,7 @@ func PullRequests(client *Client, repo ghrepo.Interface, currentPRNumber int, cu
 	`
 	if currentPRNumber > 0 {
 		queryPrefix = `
-		query($owner: String!, $repo: String!, $number: Int!, $viewerQuery: String!, $reviewerQuery: String!, $per_page: Int = 10) {
+		query PullRequestStatus($owner: String!, $repo: String!, $number: Int!, $viewerQuery: String!, $reviewerQuery: String!, $per_page: Int = 10) {
 			repository(owner: $owner, name: $repo) {
 				defaultBranchRef { name }
 				pullRequest(number: $number) {
@@ -359,7 +397,7 @@ func PullRequests(client *Client, repo ghrepo.Interface, currentPRNumber int, cu
 	}
 
 	var resp response
-	err := client.GraphQL(query, variables, &resp)
+	err = client.GraphQL(query, variables, &resp)
 	if err != nil {
 		return nil, err
 	}
@@ -761,26 +799,114 @@ func AddReview(client *Client, pr *PullRequest, input *PullRequestReviewInput) e
 	return v4.Mutate(context.Background(), &mutation, gqlInput, nil)
 }
 
-func PullRequestList(client *Client, vars map[string]interface{}, limit int) (*PullRequestAndTotalCount, error) {
-	type prBlock struct {
-		Edges []struct {
-			Node PullRequest
-		}
-		PageInfo struct {
-			HasNextPage bool
-			EndCursor   string
-		}
-		TotalCount int
-		IssueCount int
-	}
-	type response struct {
-		Repository struct {
-			PullRequests prBlock
-		}
-		Search prBlock
+func PullRequestList(client *Client, params map[string]interface{}, limit int) (*PullRequestAndTotalCount, error) {
+	var featureDetection struct {
+		PullRequest struct {
+			Fields []struct {
+				Name string
+			} `graphql:"fields(includeDeprecated: true)"`
+		} `graphql:"PullRequest: __type(name: \"PullRequest\")"`
+		PullRequestFilters struct {
+			InputFields []struct {
+				Name string
+			}
+		} `graphql:"PullRequestFilters: __type(name: \"PullRequestFilters\")"`
 	}
 
-	fragment := `
+	v4 := githubv4.NewClient(client.http)
+	err := v4.Query(context.Background(), &featureDetection, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var field_isDraft string
+	var filterBy_assignee bool
+	var filterBy_author bool
+	var filterBy_labels bool
+	// var filterBy_state bool
+	for _, field := range featureDetection.PullRequest.Fields {
+		switch field.Name {
+		case "isDraft":
+			field_isDraft = "isDraft"
+		}
+	}
+	for _, field := range featureDetection.PullRequestFilters.InputFields {
+		switch field.Name {
+		case "assignee":
+			filterBy_assignee = true
+		case "author":
+			filterBy_author = true
+		case "labels":
+			filterBy_labels = true
+			// case "state":
+			// 	filterBy_state = true
+		}
+	}
+
+	queryVars := []string{
+		"$owner: String!",
+		"$repo: String!",
+		"$limit: Int!",
+		"$endCursor: String",
+		"$baseBranch: String",
+	}
+
+	var legacyFields []string
+	var filterBy string
+	var filterByCriteria []string
+
+	variables := map[string]interface{}{}
+	for key, value := range params {
+		switch key {
+		case "state":
+			queryVars = append(queryVars, "$state: [PullRequestState!] = OPEN")
+			// if filterBy_state {
+			// 	filterByCriteria = append(filterByCriteria, "state: $state")
+			// } else {
+			legacyFields = append(legacyFields, "states: $state")
+		case "labels":
+			queryVars = append(queryVars, "$labels: [String!]")
+			if filterBy_labels {
+				filterByCriteria = append(filterByCriteria, "labels: $labels")
+			} else {
+				legacyFields = append(legacyFields, "labels: $labels")
+			}
+		case "assignee":
+			if !filterBy_assignee {
+				return nil, fmt.Errorf("API error: filtering by assignee not available")
+			}
+			queryVars = append(queryVars, "$assignee: String!")
+			filterByCriteria = append(filterByCriteria, "assignee: $assignee")
+		case "author":
+			if !filterBy_author {
+				return nil, fmt.Errorf("API error: filtering by author not available")
+			}
+			queryVars = append(queryVars, "$author: String!")
+			filterByCriteria = append(filterByCriteria, "author: $author")
+		}
+		variables[key] = value
+	}
+
+	if len(filterByCriteria) > 0 {
+		filterBy = fmt.Sprintf("filterBy: {%s}", strings.Join(filterByCriteria, ", "))
+	}
+
+	type response struct {
+		Repository struct {
+			PullRequests struct {
+				Edges []struct {
+					Node PullRequest
+				}
+				PageInfo struct {
+					HasNextPage bool
+					EndCursor   string
+				}
+				TotalCount int
+			}
+		}
+	}
+
+	query := fmt.Sprintf(`
 	fragment pr on PullRequest {
 		number
 		title
@@ -791,27 +917,14 @@ func PullRequestList(client *Client, vars map[string]interface{}, limit int) (*P
 			login
 		}
 		isCrossRepository
-		isDraft
+		%s
 	}
-	`
-
-	// If assignee wasn't specified, use `Repository.pullRequest` for ability to
-	// query by multiple labels
-	query := fragment + `
-    query(
-		$owner: String!,
-		$repo: String!,
-		$limit: Int!,
-		$endCursor: String,
-		$baseBranch: String,
-		$labels: [String!],
-		$state: [PullRequestState!] = OPEN
-	) {
+    query PullRequestList(%s) {
       repository(owner: $owner, name: $repo) {
         pullRequests(
-			states: $state,
 			baseRefName: $baseBranch,
-			labels: $labels,
+			%s,
+			%s,
 			first: $limit,
 			after: $endCursor,
 			orderBy: {field: CREATED_AT, direction: DESC}
@@ -828,69 +941,14 @@ func PullRequestList(client *Client, vars map[string]interface{}, limit int) (*P
 				}
 			}
 		}
-	}`
+	}
+	`, field_isDraft, strings.Join(queryVars, ", "), strings.Join(legacyFields, ", "), filterBy)
 
 	var check = make(map[int]struct{})
 	var prs []PullRequest
 	pageLimit := min(limit, 100)
-	variables := map[string]interface{}{}
 	res := PullRequestAndTotalCount{}
 
-	// If assignee was specified, use the `search` API rather than
-	// `Repository.pullRequests`, but this mode doesn't support multiple labels
-	if assignee, ok := vars["assignee"].(string); ok {
-		query = fragment + `
-		query(
-			$q: String!,
-			$limit: Int!,
-			$endCursor: String,
-		) {
-			search(query: $q, type: ISSUE, first: $limit, after: $endCursor) {
-				issueCount
-				edges {
-					node {
-						...pr
-					}
-				}
-				pageInfo {
-					hasNextPage
-					endCursor
-				}
-			}
-		}`
-		owner := vars["owner"].(string)
-		repo := vars["repo"].(string)
-		search := []string{
-			fmt.Sprintf("repo:%s/%s", owner, repo),
-			fmt.Sprintf("assignee:%s", assignee),
-			"is:pr",
-			"sort:created-desc",
-		}
-		if states, ok := vars["state"].([]string); ok && len(states) == 1 {
-			switch states[0] {
-			case "OPEN":
-				search = append(search, "state:open")
-			case "CLOSED":
-				search = append(search, "state:closed")
-			case "MERGED":
-				search = append(search, "is:merged")
-			}
-		}
-		if labels, ok := vars["labels"].([]string); ok && len(labels) > 0 {
-			if len(labels) > 1 {
-				return nil, fmt.Errorf("multiple labels with --assignee are not supported")
-			}
-			search = append(search, fmt.Sprintf(`label:"%s"`, labels[0]))
-		}
-		if baseBranch, ok := vars["baseBranch"].(string); ok {
-			search = append(search, fmt.Sprintf(`base:"%s"`, baseBranch))
-		}
-		variables["q"] = strings.Join(search, " ")
-	} else {
-		for name, val := range vars {
-			variables[name] = val
-		}
-	}
 loop:
 	for {
 		variables["limit"] = pageLimit
@@ -901,10 +959,6 @@ loop:
 		}
 		prData := data.Repository.PullRequests
 		res.TotalCount = prData.TotalCount
-		if _, ok := variables["q"]; ok {
-			prData = data.Search
-			res.TotalCount = prData.IssueCount
-		}
 
 		for _, edge := range prData.Edges {
 			if _, exists := check[edge.Node.Number]; exists {

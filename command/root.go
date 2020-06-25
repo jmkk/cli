@@ -228,7 +228,10 @@ var apiClientForContext = func(ctx context.Context) (*api.Client, error) {
 		api.AddHeaderFunc("Authorization", getAuthValue),
 		api.AddHeader("User-Agent", fmt.Sprintf("GitHub CLI %s", Version)),
 		// antiope-preview: Checks
-		api.AddHeader("Accept", "application/vnd.github.antiope-preview+json"),
+		// shadow-cat-preview: Draft pull requests
+		api.AddHeader("Accept", "application/vnd.github.antiope-preview+json, application/vnd.github.shadow-cat-preview"),
+		// request feature-flagged APIs via OAuth app
+		api.AddHeader("GraphQL-Features", "pe_mobile,gh_cli"),
 	)
 
 	return api.NewClient(opts...), nil
