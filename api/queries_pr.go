@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/shurcooL/githubv4"
@@ -206,8 +207,13 @@ func (pr *PullRequest) ChecksStatus() (summary PullRequestChecksStatus) {
 }
 
 func (c Client) PullRequestDiff(baseRepo ghrepo.Interface, prNumber int) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/pulls/%d",
-		ghrepo.FullName(baseRepo), prNumber)
+	hostname := "github.com"
+	if gheHostname := os.Getenv("GITHUB_HOST"); gheHostname != "" {
+		hostname = gheHostname
+	}
+
+	url := fmt.Sprintf("https://api.%s/repos/%s/pulls/%d",
+		hostname, ghrepo.FullName(baseRepo), prNumber)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err

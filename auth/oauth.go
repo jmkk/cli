@@ -50,6 +50,7 @@ func (oa *OAuthFlow) ObtainAccessToken() (accessToken string, err error) {
 	scopes := "repo"
 	if oa.Scopes != nil {
 		scopes = strings.Join(oa.Scopes, " ")
+	}
 
 	redirectURI := "http://127.0.0.1:%d/callback"
 	callbackPath := "/callback"
@@ -60,8 +61,8 @@ func (oa *OAuthFlow) ObtainAccessToken() (accessToken string, err error) {
 
 	q := url.Values{}
 	q.Set("client_id", oa.ClientID)
-  q.Set("redirect_uri", fmt.Sprintf(redirectURI, port))
-  q.Set("scope", scopes)
+	q.Set("redirect_uri", fmt.Sprintf(redirectURI, port))
+	q.Set("scope", scopes)
 	q.Set("state", state)
 
 	startURL := fmt.Sprintf("https://%s/login/oauth/authorize?%s", oa.Hostname, q.Encode())

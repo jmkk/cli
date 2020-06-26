@@ -55,6 +55,9 @@ func (r Repository) RepoName() string {
 // RepoHost is the GitHub hostname of the repository
 func (r Repository) RepoHost() string {
 	// FIXME: inherit hostname from the server
+	if gheHostname := os.Getenv("GITHUB_HOST"); gheHostname != "" {
+		return gheHostname
+	}
 	return "github.com"
 }
 

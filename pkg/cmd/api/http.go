@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -18,6 +19,9 @@ func httpRequest(client *http.Client, method string, p string, params interface{
 		requestURL = p
 	} else {
 		requestURL = "https://api.github.com/" + p
+		if gheHostname := os.Getenv("GITHUB_HOST"); gheHostname != "" {
+			requestURL = fmt.Sprintf("https://%s/api/v3/%s", gheHostname, p)
+		}
 	}
 
 	var body io.Reader

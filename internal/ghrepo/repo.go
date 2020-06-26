@@ -3,10 +3,17 @@ package ghrepo
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 )
 
-const defaultHostname = "github.com"
+var defaultHostname = "github.com"
+
+func init() {
+	if gheHostname := os.Getenv("GITHUB_HOST"); gheHostname != "" {
+		defaultHostname = gheHostname
+	}
+}
 
 // Interface describes an object that represents a GitHub repository
 type Interface interface {

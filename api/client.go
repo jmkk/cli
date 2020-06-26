@@ -38,9 +38,9 @@ func AddHeader(name, value string) ClientOption {
 		return &funcTripper{roundTrip: func(req *http.Request) (*http.Response, error) {
 			// prevent the token from leaking to non-GitHub hosts
 			// TODO: GHE support
-			if !strings.EqualFold(name, "Authorization") || strings.HasSuffix(req.URL.Hostname(), ".github.com") {
+			//if !strings.EqualFold(name, "Authorization") || strings.HasSuffix(req.URL.Hostname(), ".github.com") {
 				req.Header.Add(name, value)
-			}
+			//}
 			return tr.RoundTrip(req)
 		}}
 	}
@@ -52,9 +52,9 @@ func AddHeaderFunc(name string, value func() string) ClientOption {
 		return &funcTripper{roundTrip: func(req *http.Request) (*http.Response, error) {
 			// prevent the token from leaking to non-GitHub hosts
 			// TODO: GHE support
-			if !strings.EqualFold(name, "Authorization") || strings.HasSuffix(req.URL.Hostname(), ".github.com") {
+			//if !strings.EqualFold(name, "Authorization") || strings.HasSuffix(req.URL.Hostname(), ".github.com") {
 				req.Header.Add(name, value())
-			}
+			//}
 			return tr.RoundTrip(req)
 		}}
 	}
@@ -161,6 +161,9 @@ func (gr GraphQLErrorResponse) Error() string {
 // Returns whether or not scopes are present, appID, and error
 func (c Client) HasScopes(wantedScopes ...string) (bool, string, error) {
 	url := "https://api.github.com/user"
+	if gheHostname := os.Getenv("GITHUB_HOST"); gheHostname != "" {
+		url = fmt.Sprintf("https://%s/api/v3/%s", gheHostname, "user")
+	}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return false, "", err
